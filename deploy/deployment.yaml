@@ -1,0 +1,104 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gpu-fallback
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gpu-fallback-webhook
+  namespace: gpu-fallback
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gpu-fallback-webhook
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "pods"]
+    verbs: ["list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gpu-fallback-webhook
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: gpu-fallback-webhook
+subjects:
+  - kind: ServiceAccount
+    name: gpu-fallback-webhook
+    namespace: gpu-fallback
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gpu-fallback-webhook
+  namespace: gpu-fallback
+  labels:
+    app: gpu-fallback-webhook
+spec:
+  ports:
+    - port: 443
+      targetPort: 8443
+  selector:
+    app: gpu-fallback-webhook
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gpu-fallback-webhook
+  namespace: gpu-fallback
+  labels:
+    app: gpu-fallback-webhook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gpu-fallback-webhook
+  template:
+    metadata:
+      labels:
+        app: gpu-fallback-webhook
+    spec:
+      serviceAccountName: gpu-fallback-webhook
+      containers:
+        - name: webhook
+          image: cfall/gpu-fallback-webhook:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CHECK_CLUSTER_CAPACITY
+              value: "true"
+          ports:
+            - containerPort: 8443
+              name: webhook-api
+          volumeMounts:
+            - name: webhook-certs
+              mountPath: /etc/webhook/certs
+              readOnly: true
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 20
+      volumes:
+        - name: webhook-certs
+          secret:
+            secretName: gpu-fallback-webhook-certs

@@ -1,0 +1,28 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: gpu-fallback-webhook-config
+webhooks:
+  - name: gpufallback.example.com
+    clientConfig:
+      service:
+        name: gpu-fallback-webhook
+        namespace: gpu-fallback
+        path: "/mutate"
+      caBundle: CA_BUNDLE_PLACEHOLDER
+    rules:
+      - operations: ["CREATE"]
+        apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods"]
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    timeoutSeconds: 10
+    # Set to Ignore in production so pod scheduling is not blocked if the webhook is down.
+    # Set to Fail if you want to strictly guarantee that no GPU Pod gets scheduled if fallback cannot be evaluated.
+    failurePolicy: Ignore
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: ["kube-system", "gpu-fallback"]

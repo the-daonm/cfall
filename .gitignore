@@ -1,0 +1,12 @@
+# Compiled binaries
+bin/
+
+# Auto-generated active webhook configuration (contains base64 certificate bundle)
+deploy/webhook-configuration-active.yaml
+
+# Local certificate generation files (if generated outside of k8s secret)
+*.crt
+*.key
+*.srl
+ca.srl
+*.pem
