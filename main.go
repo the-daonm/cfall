@@ -310,6 +310,20 @@ func (s *WebhookServer) mutatePod(pod *corev1.Pod, availableGPUs int64) ([]Patch
 			containerGPUs = val.Value()
 			hasGPURequest = true
 		}
+		
+		// Check HAMi resource requests as well
+		if _, ok := c.Resources.Requests["nvidia.com/gpumem"]; ok {
+			hasGPURequest = true
+		}
+		if _, ok := c.Resources.Limits["nvidia.com/gpumem"]; ok {
+			hasGPURequest = true
+		}
+		if _, ok := c.Resources.Requests["nvidia.com/gpucores"]; ok {
+			hasGPURequest = true
+		}
+		if _, ok := c.Resources.Limits["nvidia.com/gpucores"]; ok {
+			hasGPURequest = true
+		}
 		sumContainersGPUs += containerGPUs
 	}
 
@@ -322,6 +336,20 @@ func (s *WebhookServer) mutatePod(pod *corev1.Pod, availableGPUs int64) ([]Patch
 			hasGPURequest = true
 		} else if val, ok := c.Resources.Limits["nvidia.com/gpu"]; ok {
 			initGPUs = val.Value()
+			hasGPURequest = true
+		}
+		
+		// Check HAMi resource requests as well
+		if _, ok := c.Resources.Requests["nvidia.com/gpumem"]; ok {
+			hasGPURequest = true
+		}
+		if _, ok := c.Resources.Limits["nvidia.com/gpumem"]; ok {
+			hasGPURequest = true
+		}
+		if _, ok := c.Resources.Requests["nvidia.com/gpucores"]; ok {
+			hasGPURequest = true
+		}
+		if _, ok := c.Resources.Limits["nvidia.com/gpucores"]; ok {
 			hasGPURequest = true
 		}
 		if initGPUs > maxInitGPUs {
@@ -354,12 +382,16 @@ func (s *WebhookServer) mutatePod(pod *corev1.Pod, availableGPUs int64) ([]Patch
 	for i, c := range pod.Spec.Containers {
 		mutatedContainers[i] = *c.DeepCopy()
 
-		// Remove nvidia.com/gpu limits/requests
+		// Remove nvidia.com/gpu, nvidia.com/gpumem, and nvidia.com/gpucores limits/requests
 		if mutatedContainers[i].Resources.Limits != nil {
 			delete(mutatedContainers[i].Resources.Limits, "nvidia.com/gpu")
+			delete(mutatedContainers[i].Resources.Limits, "nvidia.com/gpumem")
+			delete(mutatedContainers[i].Resources.Limits, "nvidia.com/gpucores")
 		}
 		if mutatedContainers[i].Resources.Requests != nil {
 			delete(mutatedContainers[i].Resources.Requests, "nvidia.com/gpu")
+			delete(mutatedContainers[i].Resources.Requests, "nvidia.com/gpumem")
+			delete(mutatedContainers[i].Resources.Requests, "nvidia.com/gpucores")
 		}
 
 		// Inject environment variables
@@ -405,15 +437,23 @@ func (s *WebhookServer) mutatePod(pod *corev1.Pod, availableGPUs int64) ([]Patch
 			mutatedInitContainers[i] = *c.DeepCopy()
 			containerMutated := false
 
-			if _, ok := mutatedInitContainers[i].Resources.Limits["nvidia.com/gpu"]; ok {
-				delete(mutatedInitContainers[i].Resources.Limits, "nvidia.com/gpu")
-				containerMutated = true
-				initMutated = true
+			if mutatedInitContainers[i].Resources.Limits != nil {
+				for _, res := range []corev1.ResourceName{"nvidia.com/gpu", "nvidia.com/gpumem", "nvidia.com/gpucores"} {
+					if _, ok := mutatedInitContainers[i].Resources.Limits[res]; ok {
+						delete(mutatedInitContainers[i].Resources.Limits, res)
+						containerMutated = true
+						initMutated = true
+					}
+				}
 			}
-			if _, ok := mutatedInitContainers[i].Resources.Requests["nvidia.com/gpu"]; ok {
-				delete(mutatedInitContainers[i].Resources.Requests, "nvidia.com/gpu")
-				containerMutated = true
-				initMutated = true
+			if mutatedInitContainers[i].Resources.Requests != nil {
+				for _, res := range []corev1.ResourceName{"nvidia.com/gpu", "nvidia.com/gpumem", "nvidia.com/gpucores"} {
+					if _, ok := mutatedInitContainers[i].Resources.Requests[res]; ok {
+						delete(mutatedInitContainers[i].Resources.Requests, res)
+						containerMutated = true
+						initMutated = true
+					}
+				}
 			}
 
 			if containerMutated {
@@ -581,6 +621,14 @@ func (s *WebhookServer) mutatePod(pod *corev1.Pod, availableGPUs int64) ([]Patch
 				Value: nodeAffinity,
 			})
 		}
+	}
+
+	// Remove runtimeClassName: nvidia if present to run on default CPU runtime
+	if pod.Spec.RuntimeClassName != nil && *pod.Spec.RuntimeClassName == "nvidia" {
+		patches = append(patches, PatchOperation{
+			Op:   "remove",
+			Path: "/spec/runtimeClassName",
+		})
 	}
 
 	// 5. Add fallback-triggered annotation
